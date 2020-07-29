@@ -1,5 +1,5 @@
 {
-    "name": "mykola/redis-cache",
+    "name": "redis_cache/redis_cache",
     "description": "Creating cache in redis",
     "license": "MIT",
     "authors": [
