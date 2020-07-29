@@ -41,20 +41,26 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     }
     public function setCaches()
     {
-        $keys = app('redis')->keys(str_ireplace('\\', '?', $this->model . '_*'));
+        $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->model . '_*'));
         foreach ($keys as $key) {
-            $this->caches += [$key => app('redis')->get($key)];
+            $this->caches[$key] = app('redis')->get($key);
         }
     }
 
     /**
      * @param string $model
      * @return RedisCacheRepository
+     * @throws NotUsedTraitException
      */
     public function setModel(string $model)
     {
         $this->model = $model;
         $this->setCaches();
+
+        if (!method_exists($this->model, 'checkCacheTrait')) {
+            throw new NotUsedTraitException('Sorry, but your model don\'t use the important trait');
+        }
+
         return $this;
     }
 
@@ -62,13 +68,9 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      * @param int $id
      * @return bool
      */
-    private function existInCache($id)
+    private function existInCache($id): bool
     {
-        if (app('redis')->exists($this->model . '_' . $id) === 1) {
-            return true;
-        } else {
-            return false;
-        }
+        return app('redis')->exists($this->model . '_' . $id);
     }
 
     /**
@@ -97,7 +99,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
             unset($this->caches[$this->model . '_' . $id]);
         }
 
-        $this->caches += [$this->model . '_' . $id => serialize($cache)];
+        $this->caches[$this->model . '_' . $id] = serialize($cache);
     }
 
     /**
@@ -119,14 +121,9 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     /**
      * @param int $id
      * @return bool|mixed|string
-     * @throws NotUsedTraitException
      */
     public function find($id)
     {
-
-        if (!method_exists($this->model, 'checkCacheTrait')) {
-            throw new NotUsedTraitException('Sorry, but your model don\'t use the important trait');
-        }
 
         if (!$this->existInCache($id)) {
             $this->setInCache($id);
