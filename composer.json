@@ -1,0 +1,19 @@
+{
+    "name": "mykola/redis-cache",
+    "description": "Creating cache in redis",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Mykola",
+            "email": "mathematic204chnu@gmail.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "RedisCache\\": "src",
+            "RedisTests\\": "tests"
+        }
+    },
+
+    "require": {}
+}
