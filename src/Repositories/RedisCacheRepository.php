@@ -21,18 +21,18 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      */
     protected $model;
     /**
-     * @var array
+     * @var Model
      */
-    protected $data = [];
+    protected $data;
     /**
      * @var int|null
      */
     private $id = null;
 
     /**
-     * @return array
+     * @return Model
      */
-    public function getData(): array
+    public function getData()
     {
         return $this->data;
     }
@@ -46,7 +46,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     }
     public function setData()
     {
-        $this->data = unserialize(app('redis')->get($this->model . '_' . $this->id))->getAttributes();
+        $this->data = unserialize(app('redis')->get($this->model . '_' . $this->id));
 
     }
 
@@ -115,6 +115,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
         if (!$this->existInCache()) {
             $this->setInCache();
         }
+
         $this->setData();
 
         return $this;
@@ -123,31 +124,41 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     /**
      * @param string $attribute
      * @return mixed
-     * @throws NotFindModelIdException
      */
     public function getAttribute($attribute)
     {
-        if ( $this->id == null ) {
-            throw new NotFindModelIdException('You did not use method find, so i don\' know id.');
-        }
-
-        return $this->data[$attribute];
+        return $this->data->getAttribute($attribute);
     }
 
     /**
      * @param string $attribute
      * @param $value
-     * @throws NotFindModelIdException
+     * @return RedisCacheRepository
      */
     public function setAttribute($attribute, $value)
     {
-        if ( $this->id == null ) {
-            throw new NotFindModelIdException('You did not use method find, so i don\' know id.');
+        $this->data->setAttribute($attribute,$value);
+        app('redis')->set($this->model . '_' . $this->id, serialize($this->data), 'ex', config('redisCache.time'));
+
+        return $this;
+
+    }
+
+    /**
+     * @param array $attributes_n_values
+     * @return $this
+     */
+    public function setAttributes($attributes_n_values)
+    {
+        foreach ($attributes_n_values as $key=>$value){
+            $this->setAttribute($key,$value);
         }
 
-        $this->model::query()->find($this->id)->setAttribute($attribute,$value)->save();
-        $this->setInCache();
-        $this->data[$attribute] = $value;
+        return $this;
+    }
+    public function save()
+    {
+        $this->data->save();
     }
 
     /**

@@ -43,14 +43,12 @@ class ModelsTest extends TestCase
         $this->value = 'Somebody 2';
 
         $this->check($redis);
-
     }
-
     private function check($redis)
     {
-        $this->assertEquals($this->model::query()->find($this->id)->getAttributes(), $redis->find($this->id)->getData()); // Перевірка чи поля знайденого в репозиторії елемента = елементу із mysql
+        $this->assertEquals($this->model::query()->find($this->id), $redis->find($this->id)->getData()); // Перевірка чи знайдений в репозиторії елемент = елементу із mysql
         $this->assertEquals($this->model::query()->find($this->id)->getAttribute($this->attribute), $redis->getAttribute($this->attribute)); //те саме тільки із конкретним атрибутом
-        $redis->setAttribute($this->id,$this->attribute,$this->value); //встаглвдення нового значення
+        $redis->setAttribute($this->attribute,$this->value)->save(); //встановлення нового значення
         $this->assertEquals($this->value,$redis->getAttribute($this->attribute)); //перевірка чи правильно встановилось нове значення, беручи із кеша
         $this->assertEquals($this->value,$this->model::query()->find($this->id)->getAttribute($this->attribute));  // перевірка чи правильно встановилось нове значення, беручи із mysql
 
