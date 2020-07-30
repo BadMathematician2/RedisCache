@@ -4,6 +4,9 @@
 namespace RedisCache\Repositories;
 
 
+use App\Packages\RedisCache\src\Exceptions\WrongCallException;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Events\QueryExecuted;
 use RedisCache\Exceptions\NotUsedTraitException;
 use RedisCache\Repositories\Interfaces\RedisCacheRepositoryInterface;
 use Illuminate\Database\Eloquent\Model;
@@ -29,13 +32,30 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     private $id = null;
 
     /**
+     * @var RedisCacheRepository[]
+     */
+    protected $related_model;
+
+    /**
+     * @return mixed
+     */
+    public function getRelatedModel()
+    {
+        return $this->related_model;
+    }
+
+    /**
      * @return Model
      */
     public function getData()
     {
         return $this->data;
     }
+    public function setData()
+    {
+        $this->data = unserialize(app('redis')->get($this->model . '_' . $this->id));
 
+    }
     /**
      * @return string
      */
@@ -44,11 +64,28 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
         return $this->model . '_' . $this->id;
     }
 
-    public function setData()
+
+    public function start()
     {
-        $this->data = unserialize(app('redis')->get($this->model . '_' . $this->id));
+
+        \DB::listen(function(QueryExecuted $queryExecuted) {
+            echo $this->getEloquentSqlWithBindings($queryExecuted) . '<br>';
+        });
+
 
     }
+    /**
+     * @param $query
+     * @return string
+     */
+    public function getEloquentSqlWithBindings(QueryExecuted $query)
+    {
+        return vsprintf(str_replace('?', '%s', $query->sql), collect($query->bindings)->map(function ($binding) {
+            return is_numeric($binding) ? $binding : "'{$binding}'";
+        })->toArray());
+    }
+
+
     public static function make($model)
     {
         try {
@@ -58,21 +95,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
         }
     }
 
-    /**
-     * @param string $model
-     * @return RedisCacheRepository
-     * @throws NotUsedTraitException
-     */
-    private function setModel(string $model)
-    {
-        $this->model = $model;
 
-        if (!method_exists($this->model, 'checkCacheTrait')) {
-            throw new NotUsedTraitException('Sorry, but your model don\'t use the important trait');
-        }
-
-        return $this;
-    }
 
     /**
      * @return bool
@@ -111,6 +134,22 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
             }
         }
         app('redis')->del($key_with_min);
+    }
+
+    /**
+     * @param string $model
+     * @return RedisCacheRepository
+     * @throws NotUsedTraitException
+     */
+    private function setModel(string $model)
+    {
+        $this->model = $model;
+
+        if (!method_exists($this->model, 'checkCacheTrait')) {
+            throw new NotUsedTraitException('Sorry, but your model don\'t use the important trait');
+        }
+
+        return $this;
     }
 
     /**
@@ -171,6 +210,42 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
         $this->data->save();
     }
 
+
+    /**
+     * @param string[] $relations
+     * @return $this
+     */
+    public function with(...$relations)
+    {
+        foreach ($relations as $relation) {
+
+            $model = $this->model::query()->with($relation)->getRelation($relation)->getModel();
+
+            $foreign_key = $model->getForeignKey();
+
+            $related_model_name = get_class($model);
+            $id = $this->getAttribute($foreign_key);
+
+            $this->related_model[$relation] = RedisCacheRepository::make($related_model_name)->find($id);
+        }
+
+        return $this;
+    }
+
+    /**
+     * @param string $name
+     * @return mixed|RedisCacheRepository
+     * @throws WrongCallException
+     */
+    public function __get($name)
+    {
+        if ( ! array_key_exists($name, $this->getRelatedModel())) {
+            throw new WrongCallException('Sorry, i can\'t do that');
+        }
+
+        return $this->getRelatedModel()[$name];
+    }
+
     /**
      * @return string
      */
@@ -178,7 +253,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     {
         $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->model . '_*'));
         foreach ($keys as $key) {
-             app('redis')->del($key);
+            app('redis')->del($key);
         }
         return 'Done';
     }

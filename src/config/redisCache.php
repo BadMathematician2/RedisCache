@@ -1,6 +1,6 @@
 <?php
 
 return [
-    'time' => 6000,
+    'time' => 1000,
     'max_count' => 7,
 ];
