@@ -4,7 +4,6 @@
 namespace RedisCache\Repositories;
 
 
-use App\Packages\RedisCache\src\Exceptions\NotFindModelIdException;
 use RedisCache\Exceptions\NotUsedTraitException;
 use RedisCache\Repositories\Interfaces\RedisCacheRepositoryInterface;
 use Illuminate\Database\Eloquent\Model;
@@ -38,16 +37,25 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     }
 
     /**
-     * @return static
+     * @return string
      */
-    static function getStatic()
+    private function getKey(): string
     {
-        return new static();
+        return $this->model . '_' . $this->id;
     }
+
     public function setData()
     {
         $this->data = unserialize(app('redis')->get($this->model . '_' . $this->id));
 
+    }
+    public static function make($model)
+    {
+        try {
+            return (new static)->setModel($model);
+        } catch (NotUsedTraitException $e) {
+            return null;
+        }
     }
 
     /**
@@ -55,7 +63,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      * @return RedisCacheRepository
      * @throws NotUsedTraitException
      */
-    public function setModel(string $model)
+    private function setModel(string $model)
     {
         $this->model = $model;
 
@@ -84,7 +92,8 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
         }
 
         $cache = $this->model::query()->find($this->id);
-        app('redis')->set($this->model . '_' . $this->id, serialize($cache), 'ex', config('redisCache.time'));
+        app('redis')->set($this->getKey(), serialize($cache));
+        app('redis')->expire($this->getKey(),config('redisCache.time'));
 
     }
 
@@ -138,19 +147,20 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     public function setAttribute($attribute, $value)
     {
         $this->data->setAttribute($attribute,$value);
-        app('redis')->set($this->model . '_' . $this->id, serialize($this->data), 'ex', config('redisCache.time'));
+        app('redis')->set($this->getKey(), serialize($this->data));
+        app('redis')->expire($this->getKey(),config('redisCache.time'));
 
         return $this;
 
     }
 
     /**
-     * @param array $attributes_n_values
+     * @param array $values
      * @return $this
      */
-    public function setAttributes($attributes_n_values)
+    public function setAttributes($values)
     {
-        foreach ($attributes_n_values as $key=>$value){
+        foreach ($values as $key=> $value){
             $this->setAttribute($key,$value);
         }
 
@@ -166,7 +176,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      */
     public function clearCache()
     {
-        $keys = app('redis')->keys(str_ireplace('\\', '?', $this->model . '_*'));
+        $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->model . '_*'));
         foreach ($keys as $key) {
              app('redis')->del($key);
         }
