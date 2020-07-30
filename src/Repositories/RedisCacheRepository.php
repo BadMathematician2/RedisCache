@@ -4,6 +4,7 @@
 namespace RedisCache\Repositories;
 
 
+use App\Packages\RedisCache\src\Exceptions\NotFindModelIdException;
 use RedisCache\Exceptions\NotUsedTraitException;
 use RedisCache\Repositories\Interfaces\RedisCacheRepositoryInterface;
 use Illuminate\Database\Eloquent\Model;
@@ -22,14 +23,18 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     /**
      * @var array
      */
-    protected $caches = [];
+    protected $data = [];
+    /**
+     * @var int|null
+     */
+    private $id = null;
 
     /**
      * @return array
      */
-    public function getCaches(): array
+    public function getData(): array
     {
-        return $this->caches;
+        return $this->data;
     }
 
     /**
@@ -39,12 +44,10 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     {
         return new static();
     }
-    public function setCaches()
+    public function setData()
     {
-        $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->model . '_*'));
-        foreach ($keys as $key) {
-            $this->caches[$key] = app('redis')->get($key);
-        }
+        $this->data = unserialize(app('redis')->get($this->model . '_' . $this->id))->getAttributes();
+
     }
 
     /**
@@ -55,7 +58,6 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     public function setModel(string $model)
     {
         $this->model = $model;
-        $this->setCaches();
 
         if (!method_exists($this->model, 'checkCacheTrait')) {
             throw new NotUsedTraitException('Sorry, but your model don\'t use the important trait');
@@ -65,41 +67,25 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     }
 
     /**
-     * @param int $id
      * @return bool
      */
-    private function existInCache($id): bool
+    private function existInCache(): bool
     {
-        return app('redis')->exists($this->model . '_' . $id);
+        return app('redis')->exists($this->model . '_' . $this->id);
     }
 
     /**
-     * @param int $id
-     * @return bool|mixed|string
      */
-    private function getFromCache($id)
+    private function setInCache()
     {
-        return unserialize(app('redis')->get($this->model . '_' . $id));
-    }
-
-    /**
-     * @param int $id
-     */
-    private function setInCache($id)
-    {
-        $keys = app('redis')->keys(str_ireplace('\\', '?', $this->model . '_*'));
+        $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->model . '_*'));
         if (sizeof($keys) >= config('redisCache.max_count')) {
             $this->deleteWithMinTime($keys);
         }
 
-        $cache = $this->model::query()->find($id);
-        app('redis')->set($this->model . '_' . $id, serialize($cache), 'ex', config('redisCache.time'));
+        $cache = $this->model::query()->find($this->id);
+        app('redis')->set($this->model . '_' . $this->id, serialize($cache), 'ex', config('redisCache.time'));
 
-        if (array_key_exists($this->model . '_' . $id,$this->caches)){
-            unset($this->caches[$this->model . '_' . $id]);
-        }
-
-        $this->caches[$this->model . '_' . $id] = serialize($cache);
     }
 
     /**
@@ -124,38 +110,44 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      */
     public function find($id)
     {
+        $this->id = $id;
 
-        if (!$this->existInCache($id)) {
-            $this->setInCache($id);
+        if (!$this->existInCache()) {
+            $this->setInCache();
         }
+        $this->setData();
 
-        return $this->getFromCache($id);
+        return $this;
     }
 
     /**
-     * @param int $id
      * @param string $attribute
      * @return mixed
+     * @throws NotFindModelIdException
      */
-    public function getAttribute($id, $attribute)
+    public function getAttribute($attribute)
     {
-        if (!array_key_exists($this->model . '_' . $id, $this->caches)) {
-            $this->setInCache($id);
+        if ( $this->id == null ) {
+            throw new NotFindModelIdException('You did not use method find, so i don\' know id.');
         }
-        $cache = unserialize($this->caches[$this->model . '_' . $id]);
 
-        return $cache->$attribute;
+        return $this->data[$attribute];
     }
 
     /**
-     * @param int $id
      * @param string $attribute
      * @param $value
+     * @throws NotFindModelIdException
      */
-    public function setAttribute($id, $attribute, $value)
+    public function setAttribute($attribute, $value)
     {
-        $this->model::query()->find($id)->setAttribute($attribute,$value)->save();
-        $this->setInCache($id);
+        if ( $this->id == null ) {
+            throw new NotFindModelIdException('You did not use method find, so i don\' know id.');
+        }
+
+        $this->model::query()->find($this->id)->setAttribute($attribute,$value)->save();
+        $this->setInCache();
+        $this->data[$attribute] = $value;
     }
 
     /**

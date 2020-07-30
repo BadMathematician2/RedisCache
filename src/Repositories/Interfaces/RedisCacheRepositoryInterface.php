@@ -8,7 +8,7 @@ interface RedisCacheRepositoryInterface
 {
     public function find(int $id);
 
-    public function getAttribute($id, $attribute);
+    public function getAttribute(string $attribute);
 
-    public function setAttribute($id,$attribute,$value);
+    public function setAttribute(string $attribute,$value);
 }
