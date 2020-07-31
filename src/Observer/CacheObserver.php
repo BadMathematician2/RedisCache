@@ -31,7 +31,7 @@ class CacheObserver
      */
     private function clearCache(Model $cache)
     {
-        app('redis')->del(get_class($cache) . '_' . $cache->getKey());
+        app('redis')->del((array)get_class($cache) . '_' . $cache->getKey());
         app('redis')->decr('n');
     }
 
