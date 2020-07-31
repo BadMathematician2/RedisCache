@@ -5,7 +5,6 @@ namespace RedisCache\Repositories;
 
 
 use App\Packages\RedisCache\src\Exceptions\WrongCallException;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Events\QueryExecuted;
 use RedisCache\Exceptions\NotUsedTraitException;
 use RedisCache\Repositories\Interfaces\RedisCacheRepositoryInterface;
@@ -21,16 +20,15 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     /**
      * @var Model
      */
-    protected $model;
+    protected $class;
     /**
      * @var Model
      */
-    protected $data;
+    protected $model;
     /**
      * @var int|null
      */
     private $id = null;
-
     /**
      * @var RedisCacheRepository[]
      */
@@ -47,13 +45,13 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     /**
      * @return Model
      */
-    public function getData()
+    public function getModel()
     {
-        return $this->data;
+        return $this->model;
     }
-    public function setData()
+    private function initData()
     {
-        $this->data = unserialize(app('redis')->get($this->model . '_' . $this->id));
+        $this->model = unserialize(app('redis')->get($this->class . '_' . $this->id));
 
     }
     /**
@@ -61,7 +59,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      */
     private function getKey(): string
     {
-        return $this->model . '_' . $this->id;
+        return $this->class . '_' . $this->id;
     }
 
 
@@ -86,35 +84,34 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     }
 
 
-    public static function make($model)
+
+    public static function make($class)
     {
         try {
-            return (new static)->setModel($model);
+            app('redis')->select(1);
+            return (new static)->setClass($class);
         } catch (NotUsedTraitException $e) {
             return null;
         }
     }
-
-
-
     /**
      * @return bool
      */
     private function existInCache(): bool
     {
-        return app('redis')->exists($this->model . '_' . $this->id);
+        return app('redis')->exists($this->class . '_' . $this->id);
     }
 
     /**
      */
     private function setInCache()
     {
-        $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->model . '_*'));
+        $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->class . '_*'));
         if (sizeof($keys) >= config('redisCache.max_count')) {
             $this->deleteWithMinTime($keys);
         }
 
-        $cache = $this->model::query()->find($this->id);
+        $cache = $this->class::query()->find($this->id);
         app('redis')->set($this->getKey(), serialize($cache));
         app('redis')->expire($this->getKey(),config('redisCache.time'));
 
@@ -137,15 +134,15 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     }
 
     /**
-     * @param string $model
+     * @param string $class
      * @return RedisCacheRepository
      * @throws NotUsedTraitException
      */
-    private function setModel(string $model)
+    private function setClass(string $class)
     {
-        $this->model = $model;
+        $this->class = $class;
 
-        if (!method_exists($this->model, 'checkCacheTrait')) {
+        if (! method_exists($this->class, 'checkCacheTrait')) {
             throw new NotUsedTraitException('Sorry, but your model don\'t use the important trait');
         }
 
@@ -164,7 +161,8 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
             $this->setInCache();
         }
 
-        $this->setData();
+        $this->initData();
+        app('redis')->expire($this->getKey(),config('redisCache.time'));
 
         return $this;
     }
@@ -175,7 +173,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      */
     public function getAttribute($attribute)
     {
-        return $this->data->getAttribute($attribute);
+        return $this->model->getAttribute($attribute);
     }
 
     /**
@@ -185,9 +183,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      */
     public function setAttribute($attribute, $value)
     {
-        $this->data->setAttribute($attribute,$value);
-        app('redis')->set($this->getKey(), serialize($this->data));
-        app('redis')->expire($this->getKey(),config('redisCache.time'));
+        $this->model->setAttribute($attribute,$value);
 
         return $this;
 
@@ -207,9 +203,23 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     }
     public function save()
     {
-        $this->data->save();
+        app('redis')->set($this->getKey(), serialize($this->model));
+        app('redis')->expire($this->getKey(),config('redisCache.time'));
+
+        $this->model->save();
     }
 
+    private function loadRelatedModel($relation)
+    {
+        $class = $this->class::query()->with($relation)->getRelation($relation)->getModel();
+
+        $foreign_key = $class->getForeignKey();
+
+        $related_class = get_class($class);
+        $id = $this->getAttribute($foreign_key);
+
+        $this->related_model[$relation] = RedisCacheRepository::make($related_class)->find($id);
+    }
 
     /**
      * @param string[] $relations
@@ -219,14 +229,9 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     {
         foreach ($relations as $relation) {
 
-            $model = $this->model::query()->with($relation)->getRelation($relation)->getModel();
-
-            $foreign_key = $model->getForeignKey();
-
-            $related_model_name = get_class($model);
-            $id = $this->getAttribute($foreign_key);
-
-            $this->related_model[$relation] = RedisCacheRepository::make($related_model_name)->find($id);
+            if ( ! isset($this->getRelatedModel()[$relation]) ) {
+                $this->loadRelatedModel($relation);
+            }
         }
 
         return $this;
@@ -251,7 +256,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      */
     public function clearCache()
     {
-        $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->model . '_*'));
+        $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->class . '_*'));
         foreach ($keys as $key) {
             app('redis')->del($key);
         }
