@@ -51,15 +51,19 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     }
     private function initData()
     {
-        $this->model = unserialize(app('redis')->get($this->class . '_' . $this->id));
+        $this->model = unserialize(app('redis')->get($this->getKey()));
 
+    }
+    private function getShortKey()
+    {
+        return '_' . $this->class . '_' . $this->id;
     }
     /**
      * @return string
      */
     private function getKey(): string
     {
-        return $this->class . '_' . $this->id;
+        return app('redis')->keys('*_' . str_ireplace('\\', '\\\\', $this->class . '_*'))[0];
     }
 
 
@@ -99,38 +103,45 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      */
     private function existInCache(): bool
     {
-        return app('redis')->exists($this->class . '_' . $this->id);
+        return !empty(app('redis')->keys('*_' . str_ireplace('\\', '\\\\', $this->class . '_' . $this->id)));
     }
 
     /**
      */
     private function setInCache()
     {
-        $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->class . '_*'));
-        if (sizeof($keys) >= config('redisCache.max_count')) {
-            $this->deleteWithMinTime($keys);
+        if (app('redis')->get('n') >= 0) {
+            $this->checkAndDelete();
+
         }
 
         $cache = $this->class::query()->find($this->id);
-        app('redis')->set($this->getKey(), serialize($cache));
-        app('redis')->expire($this->getKey(),config('redisCache.time'));
+        app('redis')->set(microtime(true) . $this->getShortKey(), serialize($cache));
+        app('redis')->incr('n');
+
 
     }
 
     /**
-     * @param array $keys
      */
-    private function deleteWithMinTime($keys)
+    private function checkAndDelete()
     {
-        $min = app('redis')->ttl($keys[0]);
-        $key_with_min = $keys[0];
-        foreach ($keys as $key) {
-            if (app('redis')->ttl($key) < $min) {
-                $min = app('redis')->ttl($key);
-                $key_with_min = $key;
-            }
+        $keys = app('redis')->keys('*_*');
+
+        if (sizeof($keys) > config('redisCache.max_count')) {
+            usort($keys, function ($a, $b) {
+                return (int)$a > (int)$b;
+            });
+
+            $keys = array_slice($keys, 0,  config('redisCache.check_frequency'));
+            array_map(function ($key) {
+                app('redis')->del($key);
+            }, $keys);
+
+            app('redis')->set('n', -config('redisCache.check_frequency'));
+        }else {
+            app('redis')->set('n', sizeof($keys) - config('redisCache.max_count') );
         }
-        app('redis')->del($key_with_min);
     }
 
     /**
@@ -156,9 +167,12 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     public function find($id)
     {
         $this->id = $id;
-
         if (!$this->existInCache()) {
             $this->setInCache();
+        }else {
+            $cache = app('redis')->get($this->getKey());
+            app('redis')->del($this->getKey());
+            app('redis')->set(microtime(true) . $this->getShortKey(), $cache);
         }
 
         $this->initData();
@@ -203,7 +217,9 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     }
     public function save()
     {
-        app('redis')->set($this->getKey(), serialize($this->model));
+
+        app('redis')->del($this->getKey());
+        app('redis')->set(microtime(true) . $this->getShortKey(), serialize($this->model));
         app('redis')->expire($this->getKey(),config('redisCache.time'));
 
         $this->model->save();
@@ -249,18 +265,6 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
         }
 
         return $this->getRelatedModel()[$name];
-    }
-
-    /**
-     * @return string
-     */
-    public function clearCache()
-    {
-        $keys = app('redis')->keys(str_ireplace('\\', '\\\\', $this->class . '_*'));
-        foreach ($keys as $key) {
-            app('redis')->del($key);
-        }
-        return 'Done';
     }
 
 }
