@@ -49,7 +49,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
     {
         return $this->model;
     }
-    private function initData()
+    private function initModel()
     {
         $this->model = unserialize(app('redis')->get($this->getKey()));
 
@@ -110,7 +110,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      */
     private function setInCache()
     {
-        if (app('redis')->get('n') >= 0) {
+        if (app('redis')->get('n') >= config('redisCache.max_count')) {
             $this->checkAndDelete();
 
         }
@@ -138,10 +138,10 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
                 app('redis')->del($key);
             }, $keys);
 
-            app('redis')->set('n', -config('redisCache.check_frequency'));
-        }else {
-            app('redis')->set('n', sizeof($keys) - config('redisCache.max_count') );
         }
+
+        app('redis')->set('n', 0 );
+
     }
 
     /**
@@ -175,7 +175,7 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
             app('redis')->set(microtime(true) . $this->getShortKey(), $cache);
         }
 
-        $this->initData();
+        $this->initModel();
         app('redis')->expire($this->getKey(),config('redisCache.time'));
 
         return $this;
