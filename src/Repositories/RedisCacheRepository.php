@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Model;
 class RedisCacheRepository implements RedisCacheRepositoryInterface
 {
 
+
     /**
      * @var Model
      */
@@ -114,32 +115,20 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
      */
     private function setInCache()
     {
-<<<<<<< HEAD
         if ($this->redis->get('n') >= config('redisCache.max_count')) {
             $this->checkAndDelete();
 
-=======
-        if (app('redis')->get('n') >= 500 + config('redisCache.max_count')) {
-            if (sizeof(app('redis')->keys('_*')) >= 500 + config('redisCache.max_count')) {
-                $this->deleteWithMinTime();
-                app('redis')->set('n', config('redisCache.max_count'));
-            }
->>>>>>> master
         }
-
-        app('redis')->incr('n');
 
         $cache = $this->class::query()->find($this->id);
         $this->redis->set(microtime(true) . $this->getShortKey(), serialize($cache));
         $this->redis->incr('n');
 
 
-        app('redis')->rPush('times', $this->getKey() . '|' . microtime(true));
     }
 
     /**
      */
-<<<<<<< HEAD
     private function checkAndDelete()
     {
         $keys = $this->redis->keys('*_*');
@@ -158,33 +147,6 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
 
         $this->redis->set('n', 0 );
 
-=======
-    private function deleteWithMinTime()
-    {
-
-        do{
-            $key = app('redis')->lPop('times');
-            $time = substr(stristr($key, '|'), 1);
-        }while ($time <= microtime(true) - config('redisCache.time'));
-        app('redis')->del(stristr($key,'|',true));
-        for ($i = 0; $i < 500; $i++) {
-            $key = app('redis')->lPop('times');
-            app('redis')->del(stristr($key,'|',true));
-        }
-
-
-
-
-        /*$min = app('redis')->ttl($keys[0]);
-        $key_with_min = $keys[0];
-        foreach ($keys as $key) {
-            if (app('redis')->ttl($key) < $min) {
-                $min = app('redis')->ttl($key);
-                $key_with_min = $key;
-            }
-        }
-        app('redis')->del($key_with_min);*/
->>>>>>> master
     }
 
     /**
@@ -222,8 +184,6 @@ class RedisCacheRepository implements RedisCacheRepositoryInterface
 
         $this->initModel();
         $this->redis->expire($this->getKey(),config('redisCache.time'));
-
-
 
         return $this;
     }
